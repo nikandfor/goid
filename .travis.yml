@@ -1,0 +1,13 @@
+language: go
+
+os:
+  - linux
+
+arch:
+  - amd64
+
+go:
+  - "1.15"
+
+script:
+  - go test -v -race ./...
