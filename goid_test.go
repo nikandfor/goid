@@ -181,3 +181,9 @@ func loc(pc uintptr) string {
 
 	return fmt.Sprintf("%v:%d", file, line)
 }
+
+func BenchmarkID(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = ID()
+	}
+}
