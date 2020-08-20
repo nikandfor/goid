@@ -2,9 +2,14 @@ language: go
 
 os:
   - linux
+  - darwin
+  - windows
 
 arch:
+  - x86
   - amd64
+  - arm
+  - arm64
 
 go:
   - "1.15"
