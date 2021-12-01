@@ -10,6 +10,13 @@ import (
 	"unsafe"
 )
 
+// A waitReason explains why a goroutine has been stopped.
+// See gopark. Do not re-use waitReasons, add new ones.
+type waitReason uint8
+
+// Stack describes a Go execution stack.
+// The bounds of the stack are exactly [lo, hi),
+// with no implicit data structures on either side.
 type stack struct {
 	lo uintptr
 	hi uintptr
@@ -32,9 +39,9 @@ type gobuf struct {
 	pc   uintptr
 	g    uintptr
 	ctxt unsafe.Pointer
-	ret  uint64
+	ret  uintptr
 	lr   uintptr
-	bp   uintptr // for GOEXPERIMENT=framepointer
+	bp   uintptr // for framepointer-enabled architectures
 }
 
 type g struct {
@@ -49,20 +56,31 @@ type g struct {
 	stackguard0 uintptr // offset known to liblink
 	stackguard1 uintptr // offset known to liblink
 
-	_panic       *uintptr // innermost panic - offset known to liblink
-	_defer       *uintptr // innermost defer
-	m            *uintptr // current m; offset known to arm liblink
-	sched        gobuf
-	syscallsp    uintptr        // if status==Gsyscall, syscallsp = sched.sp to use during gc
-	syscallpc    uintptr        // if status==Gsyscall, syscallpc = sched.pc to use during gc
-	stktopsp     uintptr        // expected sp at top of stack, to check in traceback
-	param        unsafe.Pointer // passed parameter on wakeup
+	_panic    *uintptr // innermost panic - offset known to liblink
+	_defer    *uintptr // innermost defer
+	m         *uintptr // current m; offset known to arm liblink
+	sched     gobuf
+	syscallsp uintptr // if status==Gsyscall, syscallsp = sched.sp to use during gc
+	syscallpc uintptr // if status==Gsyscall, syscallpc = sched.pc to use during gc
+	stktopsp  uintptr // expected sp at top of stack, to check in traceback
+	// param is a generic pointer parameter field used to pass
+	// values in particular contexts where other storage for the
+	// parameter would be difficult to find. It is currently used
+	// in three ways:
+	// 1. When a channel operation wakes up a blocked goroutine, it sets param to
+	//    point to the sudog of the completed blocking operation.
+	// 2. By gcAssistAlloc1 to signal back to its caller that the goroutine completed
+	//    the GC cycle. It is unsafe to do so in any other way, because the goroutine's
+	//    stack may have moved in the meantime.
+	// 3. By debugCallWrap to pass parameters to a new goroutine because allocating a
+	//    closure in the runtime is forbidden.
+	param        unsafe.Pointer
 	atomicstatus uint32
 	stackLock    uint32 // sigprof/scang lock; TODO: fold in to atomicstatus
 	goid         int64
 	schedlink    uintptr
-	waitsince    int64 // approx time when the g become blocked
-	waitreason   uint8 // if status==Gwaiting
+	waitsince    int64      // approx time when the g become blocked
+	waitreason   waitReason // if status==Gwaiting
 
 	preempt       bool // preemption signal, duplicates stackguard0 = stackpreempt
 	preemptStop   bool // transition to _Gpreempted on preemption; otherwise, just deschedule
@@ -81,9 +99,17 @@ type g struct {
 	// copying needs to acquire channel locks to protect these
 	// areas of the stack.
 	activeStackChans bool
+	// parkingOnChan indicates that the goroutine is about to
+	// park on a chansend or chanrecv. Used to signal an unsafe point
+	// for stack shrinking. It's a boolean value, but is updated atomically.
+	parkingOnChan uint8
 
 	raceignore     int8    // ignore race detection events
 	sysblocktraced bool    // StartTrace has emitted EvGoInSyscall about this goroutine
+	tracking       bool    // whether we're tracking this G for sched latency statistics
+	trackingSeq    uint8   // used to decide whether to track this G
+	runnableStamp  int64   // timestamp of when the G last became runnable, only used when tracking
+	runnableTime   int64   // the amount of time spent runnable, cleared when running, only used when tracking
 	sysexitticks   int64   // cputicks when syscall has returned (for tracing)
 	traceseq       uint64  // trace event sequencer
 	tracelastp     uintptr // last P emitted an event for this goroutine
@@ -93,9 +119,9 @@ type g struct {
 	sigcode0       uintptr
 	sigcode1       uintptr
 	sigpc          uintptr
-	gopc           uintptr // pc of go statement that created this goroutine
-	ancestors      *[]byte // ancestor information goroutine(s) that created this goroutine (only used if debug.tracebackancestors)
-	startpc        uintptr // pc of goroutine function
+	gopc           uintptr    // pc of go statement that created this goroutine
+	ancestors      *[]uintptr // ancestor information goroutine(s) that created this goroutine (only used if debug.tracebackancestors)
+	startpc        uintptr    // pc of goroutine function
 	racectx        uintptr
 	waiting        *uintptr       // sudog structures this g is waiting on (that have a valid elem ptr); in lock order
 	cgoCtxt        []uintptr      // cgo traceback context
@@ -155,7 +181,7 @@ func TestID(t *testing.T) {
 
 	v := reflect.TypeOf(g)
 
-	for _, fn := range []string{"goid", "startpc", "gopc"} {
+	for _, fn := range []string{"goid", "startpc", "gopc", "ancestors"} {
 		f, ok := v.FieldByName(fn)
 		if !ok {
 			t.Logf("no %v field in g", fn)
@@ -174,6 +200,10 @@ func testID(t *testing.T, wg *sync.WaitGroup) {
 
 func loc(pc uintptr) string {
 	f := runtime.FuncForPC(pc)
+
+	if f == nil {
+		return ""
+	}
 
 	file, line := f.FileLine(pc)
 
