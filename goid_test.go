@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 	"unsafe"
 )
 
@@ -196,6 +197,40 @@ func testID(t *testing.T, wg *sync.WaitGroup) {
 	t.Logf("gopc    %v", loc(GoPC()))
 
 	wg.Done()
+}
+
+type Storage struct {
+	A int
+	B string
+}
+
+func TestGetSet(t *testing.T) {
+	s := &Storage{
+		A: 1,
+		B: "qweqwe",
+	}
+
+	t.Logf("get %p", GLoad())
+
+	GSave(unsafe.Pointer(s))
+
+	t.Logf("set %p <= %p", GLoad(), s)
+
+	q := testGetSet(t)
+
+	if s.B != q {
+		t.Errorf("didn't worked")
+	}
+
+	t.Logf("res %p", GLoad())
+}
+
+func testGetSet(t *testing.T) string {
+	time.Sleep(time.Millisecond)
+
+	s := (*Storage)(GLoad())
+
+	return s.B
 }
 
 func loc(pc uintptr) string {
