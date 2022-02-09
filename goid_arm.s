@@ -6,12 +6,12 @@ TEXT ·ID(SB), NOSPLIT, $0-8
 	RET
 
 TEXT ·StartPC(SB), NOSPLIT, $0-4
-	MOVW	0x128(R14), R1 // R1 = g.startpc
+	MOVW	0x138(R14), R1 // R1 = g.startpc
 	MOVW	R1, ret+0(FP)  // ret R1
 	RET
 
 TEXT ·GoPC(SB), NOSPLIT, $0-4
-	MOVW	0x118(R14), R1 // R1 = g.gopc
+	MOVW	0x128(R14), R1 // R1 = g.gopc
 	MOVW	R1, ret+0(FP)  // ret R1
 	RET
 

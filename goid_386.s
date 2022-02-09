@@ -8,13 +8,13 @@ TEXT ·ID(SB), NOSPLIT, $0-8
 
 TEXT ·StartPC(SB), NOSPLIT, $0-4
 	MOVL	(TLS), AX     // AX = getg()
-	MOVL	0x128(AX), AX   // AX = AX.startpc
+	MOVL	0x138(AX), AX   // AX = AX.startpc
 	MOVL	AX, ret+0(FP) // ret = AX
 	RET
 
 TEXT ·GoPC(SB), NOSPLIT, $0-4
 	MOVL	(TLS), AX     // AX = getg()
-	MOVL	0x118(AX), AX   // AX = AX.gopc
+	MOVL	0x128(AX), AX   // AX = AX.gopc
 	MOVL	AX, ret+0(FP) // ret = AX
 	RET
 

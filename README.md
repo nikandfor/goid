@@ -25,11 +25,11 @@ type Storage struct {
 
 func f() {
     s := (*Storage)(goid.GLoad()) // nil at first
-    
+
     goid.GSave(unsafe.Pointer(&Storage{ /* ... */}))
-    
+
     // ... later event in some other function ...
-    
+
     s1 := (*Storage)(goid.GLoad())
     // use s1.YourField
 }
